@@ -34,6 +34,14 @@ async def lifespan(app: FastAPI):
         __version__, tf_client.current_mode(),
     )
 
+    # 首次启动: 若配置了 AUTH_PASSWORD 环境变量且未设过密码, 用它初始化。
+    # 公网部署免 SSH 端口转发; 已设过密码则不覆盖 (改密码走 UI)。
+    try:
+        from app.services import auth as auth_service
+        auth_service.bootstrap_from_env()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("auth bootstrap failed: %s", e)
+
     # 数据层
     store = DataStore()
     repo = KlineRepository(store)
@@ -98,7 +106,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("内置扩展表初始化失败 (不影响启动): %s", e)
 
-    # 财务数据独立调度 (需 Expert 套餐)
+    # 财务数据 (需 Expert 套餐): 仅初始化调度器供 /api/financials/sync/* 手动同步,
+    # 不启动自动调度——用户在「财务分析」页点「同步」手动拉取。
     from app.services.financial_sync import financial_scheduler
     financial_scheduler.start(store.data_dir, capset)
     app.state.financial_scheduler = financial_scheduler
